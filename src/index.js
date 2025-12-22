@@ -3,12 +3,12 @@ const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 const { body, validationResult } = require('express-validator');
-const { pool, testConnection, initDatabase } = require('./config/database');
+const { pool, testConnection, initDatabase } = require('../src/config/database');
+const serverless = require('serverless-http'); // 用于包装Express为Serverless函数
 
 const app = express();
-const PORT = process.env.PORT || 3000;
 
-// JSON 处理辅助函数
+// ===================== JSON 处理辅助函数 =====================
 const jsonHelper = {
     parseJSONField: (value) => {
         if (value === null || value === undefined) return value;
@@ -60,7 +60,7 @@ const jsonHelper = {
     }
 };
 
-// 错误处理中间件
+// ===================== 错误处理中间件 =====================
 const errorHandler = (err, req, res, next) => {
     console.error('服务器错误:', err);
 
@@ -89,7 +89,7 @@ const errorHandler = (err, req, res, next) => {
     });
 };
 
-// 跨域配置
+// ===================== 中间件配置 =====================
 app.use(cors({
     origin: process.env.CORS_ORIGIN || '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -98,13 +98,7 @@ app.use(cors({
 
 // 请求日志中间件
 app.use((req, res, next) => {
-    console.log('\n=== 收到请求 ===');
-    console.log(`时间: ${new Date().toLocaleString()}`);
-    console.log(`方法: ${req.method}`);
-    console.log(`URL: ${req.url}`);
-    if (req.body && Object.keys(req.body).length > 0) {
-        console.log('请求体:', req.body);
-    }
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
     next();
 });
 
@@ -123,6 +117,7 @@ app.get('/', (req, res) => {
             version: '1.0.0',
             status: 'running',
             timestamp: new Date().toISOString(),
+            environment: process.env.NODE_ENV || 'development',
             endpoints: {
                 root: '/',
                 health: '/api/health',
@@ -148,7 +143,8 @@ app.get('/api/health', (req, res) => {
         data: {
             status: 'healthy',
             timestamp: new Date().toISOString(),
-            uptime: process.uptime()
+            uptime: process.uptime(),
+            environment: process.env.NODE_ENV || 'development'
         },
         message: '服务运行正常'
     });
@@ -992,7 +988,7 @@ app.get('/api/financial/line-data', async (req, res, next) => {
     }
 });
 
-
+// 创建收入记录
 app.post('/api/financial/income', [
     body('month').trim().notEmpty().withMessage('月份不能为空'),
     body('name').trim().notEmpty().withMessage('收入名称不能为空'),
@@ -1082,7 +1078,7 @@ app.get('/api/volunteer-applications', async (req, res, next) => {
         if (!pool) throw new Error('数据库未连接');
 
         const [rows] = await pool.query(
-            'SELECT * FROM volunteer_applications ORDER BY id ASC'  
+            'SELECT * FROM volunteer_applications ORDER BY id ASC'
         );
 
         res.json({
@@ -1509,41 +1505,54 @@ app.use((req, res) => {
     });
 });
 
-// 使用统一的错误处理中间件
+// ===================== 使用统一的错误处理中间件 =====================
 app.use(errorHandler);
 
-// 启动服务器
-async function startServer() {
-    try {
-        console.log('正在启动服务器...');
 
-        const dbConnected = await testConnection();
-        console.log(`数据库连接: ${dbConnected ? '✅ 成功' : '❌ 失败'}`);
-
-        if (!dbConnected) {
-            console.error('❌ 数据库连接失败，服务器无法启动');
-            process.exit(1);
-        }
-
-        await initDatabase();
-
-        app.listen(PORT, () => {
-            console.log('\n' + '='.repeat(50));
-            console.log('🚀 服务器启动成功！');
-            console.log('='.repeat(50));
-            console.log(`📍 本地地址: http://localhost:${PORT}`);
-            console.log(`📡 API地址: http://localhost:${PORT}/api`);
-            console.log('\n📊 可用接口:');
-            console.log('\n🔧 环境: development');
-            console.log(`💾 数据库: 已连接`);
-            console.log('='.repeat(50) + '\n');
-        });
-
-    } catch (error) {
-        console.error('❌ 服务器启动失败:', error);
-        process.exit(1);
+const handler = serverless(app, {
+    request: (request, event) => {
+        // 阿里云FC的HTTP触发器路径在event.path
+        request.url = event.path || '/';
+        return request;
     }
-}
+});
 
-// 启动
-startServer();
+// 导出给阿里云函数计算使用
+module.exports.handler = async (event, context) => {
+    console.log('阿里云函数计算环境启动...');
+
+    try {
+        // 阿里云FC环境下初始化数据库（仅在冷启动时执行）
+        if (!pool) {
+            console.log('数据库连接池未初始化，正在测试连接...');
+            const dbConnected = await testConnection();
+            console.log(`数据库连接: ${dbConnected ? '✅ 成功' : '❌ 失败'}`);
+            if (dbConnected) await initDatabase();
+        }
+    } catch (error) {
+        console.error('数据库初始化失败:', error);
+        // 继续执行，不要因为数据库问题导致整个函数失败
+    }
+
+    // 兼容阿里云FC的event格式（转换为serverless-http可识别的格式）
+    const fcEvent = {
+        httpMethod: event.httpMethod || 'GET',
+        path: event.path || '/',
+        headers: event.headers || {},
+        body: event.body || '',
+        isBase64Encoded: event.isBase64Encoded || false
+    };
+
+    // 执行serverless-http处理
+    return await handler(fcEvent, context);
+};
+
+module.exports.handler = serverless(app);
+
+// 本地开发时仍可正常启动服务器
+if (process.env.NODE_ENV === 'development') {
+    const PORT = process.env.PORT || 3000;
+    app.listen(PORT, () => {
+        console.log(`本地服务器运行在 http://localhost:${PORT}`);
+    });
+}

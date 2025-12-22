@@ -1,34 +1,48 @@
 const mysql = require('mysql2/promise');
 const bcrypt = require('bcrypt');
-require('dotenv').config();
 
 // 创建数据库连接池
-const pool = mysql.createPool({
-    host: process.env.DB_HOST || 'localhost',
-    port: process.env.DB_PORT || 3306,
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'pet_rescue',
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0,
-    enableKeepAlive: true,
-    keepAliveInitialDelay: 0,
-    charset: 'utf8mb4', // 确保使用正确的字符集
-    // 自动将MySQL的JSON字段解析为对象
-    typeCast: function (field, next) {
-        if (field.type === 'JSON') {
-            try {
-                // 指定utf8编码，避免警告
-                return JSON.parse(field.string("utf8"));
-            } catch (error) {
-                console.warn(`JSON解析失败: ${field.name}`, error.message);
-                return field.string("utf8");
+function createConnectionPool() {
+    // 从环境变量获取配置，支持阿里云和本地开发
+    const config = {
+        host: process.env.DB_HOST || '1.tcp.cpolar.top',  // 你的cpolar地址
+        port: parseInt(process.env.DB_PORT) || 12345,     // 你的cpolar端口
+        user: process.env.DB_USER || 'root',              // MySQL用户名
+        password: process.env.DB_PASSWORD || '123456',    // MySQL密码
+        database: process.env.DB_NAME || 'pet_management',// 数据库名
+        waitForConnections: true,
+        connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT) || 10,
+        queueLimit: 0,
+        enableKeepAlive: true,
+        keepAliveInitialDelay: 0,
+        charset: 'utf8mb4',
+        // 阿里云函数计算需要更短的超时时间
+        connectTimeout: 10000,
+        acquireTimeout: 10000,
+        typeCast: function (field, next) {
+            if (field.type === 'JSON') {
+                try {
+                    return JSON.parse(field.string("utf8"));
+                } catch (error) {
+                    console.warn(`JSON解析失败: ${field.name}`, error.message);
+                    return field.string("utf8");
+                }
             }
+            return next();
         }
-        return next();
-    }
-});
+    };
+
+    console.log('数据库连接配置:');
+    console.log('  - 主机:', config.host);
+    console.log('  - 端口:', config.port);
+    console.log('  - 用户:', config.user);
+    console.log('  - 数据库:', config.database);
+
+    return mysql.createPool(config);
+}
+
+// 创建连接池
+const pool = createConnectionPool();
 
 // 测试数据库连接
 async function testConnection() {
@@ -39,14 +53,18 @@ async function testConnection() {
         return true;
     } catch (error) {
         console.error('❌ 数据库连接失败:', error.message);
+        console.error('完整错误信息:', error);
         return false;
     }
 }
 
+// 初始化数据库表结构
 async function initDatabase() {
     const connection = await pool.getConnection();
 
     try {
+        console.log('🔄 开始初始化数据库表结构...');
+
         // 1. 创建用户表
         await connection.query(`
             CREATE TABLE IF NOT EXISTS users (
@@ -63,6 +81,7 @@ async function initDatabase() {
                 INDEX idx_email (email)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `);
+        console.log('✅ 用户表创建/检查完成');
 
         // 2. 创建猫咪表
         await connection.query(`
@@ -78,6 +97,7 @@ async function initDatabase() {
                 INDEX idx_health (health)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `);
+        console.log('✅ 猫咪表创建/检查完成');
 
         // 3. 创建狗狗表
         await connection.query(`
@@ -91,6 +111,7 @@ async function initDatabase() {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `);
+        console.log('✅ 狗狗表创建/检查完成');
 
         // 4. 创建员工表
         await connection.query(`
@@ -106,6 +127,7 @@ async function initDatabase() {
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `);
+        console.log('✅ 员工表创建/检查完成');
 
         // 5. 创建公告表
         await connection.query(`
@@ -120,63 +142,67 @@ async function initDatabase() {
                 INDEX idx_publish_time (publish_time)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `);
-        // 在 initDatabase 函数中添加以下表的创建代码
+        console.log('✅ 公告表创建/检查完成');
 
         // 6. 创建志愿者申请表
         await connection.query(`
-    CREATE TABLE IF NOT EXISTS volunteer_applications (
-        id INT PRIMARY KEY AUTO_INCREMENT,
-        name VARCHAR(50) NOT NULL,
-        email VARCHAR(100) NOT NULL,
-        phone VARCHAR(20),
-        application_date DATE NOT NULL,
-        introduce TEXT,
-        status ENUM('待处理', '已通过', '未通过') DEFAULT '待处理',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-`);
+            CREATE TABLE IF NOT EXISTS volunteer_applications (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                name VARCHAR(50) NOT NULL,
+                email VARCHAR(100) NOT NULL,
+                phone VARCHAR(20),
+                application_date DATE NOT NULL,
+                introduce TEXT,
+                status ENUM('待处理', '已通过', '未通过') DEFAULT '待处理',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        console.log('✅ 志愿者申请表创建/检查完成');
 
         // 7. 创建财务收入表
         await connection.query(`
-    CREATE TABLE IF NOT EXISTS financial_income (
-        id INT PRIMARY KEY AUTO_INCREMENT,
-        month VARCHAR(7) NOT NULL,
-        name VARCHAR(50) NOT NULL,
-        value DECIMAL(10, 2) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_month (month)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-`);
+            CREATE TABLE IF NOT EXISTS financial_income (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                month VARCHAR(7) NOT NULL,
+                name VARCHAR(50) NOT NULL,
+                value DECIMAL(10, 2) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_month (month)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        console.log('✅ 财务收入表创建/检查完成');
 
         // 8. 创建财务支出表
         await connection.query(`
-    CREATE TABLE IF NOT EXISTS financial_expense (
-        id INT PRIMARY KEY AUTO_INCREMENT,
-        month VARCHAR(7) NOT NULL,
-        name VARCHAR(50) NOT NULL,
-        value DECIMAL(10, 2) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_month (month)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-`);
+            CREATE TABLE IF NOT EXISTS financial_expense (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                month VARCHAR(7) NOT NULL,
+                name VARCHAR(50) NOT NULL,
+                value DECIMAL(10, 2) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_month (month)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        console.log('✅ 财务支出表创建/检查完成');
 
         // 9. 创建收养者表
         await connection.query(`
-    CREATE TABLE IF NOT EXISTS adopter (
-        id INT PRIMARY KEY AUTO_INCREMENT,
-        name VARCHAR(50) NOT NULL,
-        age INT,
-        sex ENUM('男', '女'),
-        pet VARCHAR(100),
-        visit ENUM('是', '否'),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-`);
+            CREATE TABLE IF NOT EXISTS adopter (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                name VARCHAR(50) NOT NULL,
+                age INT,
+                sex ENUM('男', '女'),
+                pet VARCHAR(100),
+                visit ENUM('是', '否'),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        console.log('✅ 收养者表创建/检查完成');
 
         // 插入默认用户（使用动态生成的哈希）
         const [userCount] = await connection.query('SELECT COUNT(*) as count FROM users');
         if (userCount[0].count === 0) {
-            console.log('🔑 正在为用户生成密码哈希...');
+            console.log('🔑 正在创建默认用户...');
 
             const adminPassword = await bcrypt.hash('123456', 10);
             const userPassword = await bcrypt.hash('123456', 10);
@@ -187,21 +213,15 @@ async function initDatabase() {
                 ('user', 'user@example.com', ?, 'user', '普通用户')
             `, [adminPassword, userPassword]);
 
-            console.log('✅ 已创建默认用户：');
+            console.log('✅ 已创建默认用户：admin (123456) 和 user (123456)');
         } else {
             console.log('ℹ️ 用户表已有数据，跳过用户初始化');
-
-            const [users] = await connection.query('SELECT username, password FROM users');
-            for (const user of users) {
-                console.log(`   ${user.username} - 密码哈希长度: ${user.password?.length || 0}`);
-            }
         }
 
         // 插入员工初始数据
         const [staffCount] = await connection.query('SELECT COUNT(*) as count FROM staff');
         if (staffCount[0].count === 0) {
             console.log('👥 正在初始化员工数据...');
-
 
             const initialStaff = [
                 [1, '张三', '兽医', '医护岗', '在职',
@@ -224,7 +244,6 @@ async function initDatabase() {
                     '2023-05-18']
             ];
 
-            // 批量插入员工数据
             await connection.query(`
                 INSERT INTO staff (id, name, position, department, status, monthly_data, join_date)
                 VALUES ?

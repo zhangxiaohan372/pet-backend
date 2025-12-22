@@ -1,32 +1,46 @@
 {
     "name": "pet-rescue-backend",
     "version": "1.0.0",
-    "description": "宠物救助平台后端API",
+    "description": "pet",
     "main": "src/index.js",
     "scripts": {
         "start": "node src/index.js",
         "dev": "nodemon src/index.js",
-        "test": "echo \"Error: no test specified\" && exit 1"
+        "build": "echo \"No build step required\"",
+        "deploy:aliyun": "s deploy --use-local -y",
+        "deploy:aliyun-production": "s deploy --use-remote -y",
+        "test": "echo \"Error: no test specified\" && exit 1",
+        "local": "node src/index.js"
     },
     "keywords": [
         "nodejs",
         "express",
         "mysql",
-        "pet-rescue"
+        "pet-rescue",
+        "阿里云",
+        "函数计算",
+        "serverless"
     ],
     "author": "Your Name",
     "license": "MIT",
     "dependencies": {
         "bcrypt": "^6.0.0",
-        "bcryptjs": "^2.4.3",
         "cors": "^2.8.5",
         "dotenv": "^16.6.1",
         "express": "^4.22.1",
         "express-validator": "^7.3.1",
-        "jsonwebtoken": "^9.0.2",
-        "mysql2": "^3.16.0"
+        "mysql2": "^3.16.0",
+        "serverless-http": "^3.2.0"
     },
     "devDependencies": {
+        "@serverless-devs/s": "^3.1.6",
         "nodemon": "^3.1.11"
+    },
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/yourusername/pet-rescue-backend.git"
     }
 }
