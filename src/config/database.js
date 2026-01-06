@@ -5,8 +5,8 @@ const bcrypt = require('bcrypt');
 function createConnectionPool() {
     // 从环境变量获取配置，支持阿里云和本地开发
     const config = {
-        host: process.env.DB_HOST || '1.tcp.cpolar.top',  // 你的cpolar地址
-        port: parseInt(process.env.DB_PORT) || 12345,     // 你的cpolar端口
+        host: process.env.DB_HOST || 'localhost',
+        port: parseInt(process.env.DB_PORT) || 3306,     
         user: process.env.DB_USER || 'root',              // MySQL用户名
         password: process.env.DB_PASSWORD || '123456',    // MySQL密码
         database: process.env.DB_NAME || 'pet_management',// 数据库名

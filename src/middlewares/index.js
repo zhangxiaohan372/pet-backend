@@ -14,7 +14,7 @@ const authenticateToken = (req, res, next) => {
 
     try {
         // 验证 token
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const decoded = jwt.verify(token, import.meta.env.JWT_SECRET);
         req.user = decoded;
         next();
     } catch (error) {
@@ -85,7 +85,7 @@ const errorHandler = (err, req, res, next) => {
     res.status(500).json({
         code: 500,
         message: '服务器内部错误',
-        error: process.env.NODE_ENV === 'development' ? err.message : undefined
+        error: import.meta.env.NODE_ENV === 'development' ? err.message : undefined
     });
 };
 

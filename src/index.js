@@ -4,7 +4,6 @@ const cors = require('cors');
 const bcrypt = require('bcrypt');
 const { body, validationResult } = require('express-validator');
 const { pool, testConnection, initDatabase } = require('../src/config/database');
-const serverless = require('serverless-http'); // 用于包装Express为Serverless函数
 
 const app = express();
 
@@ -366,7 +365,105 @@ app.put('/api/cats/:id', async (req, res, next) => {
         next(error);
     }
 });
+// 新增小猫
+app.post('/api/cats', async (req, res, next) => {
+    try {
+        const { name, gender, health, adopted, rescue_track } = req.body;
 
+        if (!name || !gender || !health || !adopted) {
+            return res.status(400).json({
+                code: 400,
+                message: '缺少必要参数'
+            });
+        }
+
+        if (!pool) throw new Error('数据库未连接');
+
+        const rescueTrackStr = jsonHelper.stringifyIfObject(rescue_track || []);
+        const created_at = new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+        const [result] = await pool.query(
+            'INSERT INTO cats (name, gender, health, adopted, rescue_track, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+            [name, gender, health, adopted, rescueTrackStr, created_at]
+        );
+
+        const newCatId = result.insertId;
+
+        // 获取新创建的猫咪信息
+        const [rows] = await pool.query('SELECT * FROM cats WHERE id = ?', [newCatId]);
+
+        if (rows.length === 0) {
+            return res.status(500).json({
+                code: 500,
+                message: '创建猫咪信息失败'
+            });
+        }
+
+        const cat = {
+            ...rows[0],
+            rescue_track: jsonHelper.parseJSONField(rows[0].rescue_track)
+        };
+
+        res.json({
+            code: 200,
+            data: cat,
+            message: '猫咪创建成功'
+        });
+
+    } catch (error) {
+        next(error);
+    }
+});
+
+// 新增小狗（类似小猫接口）
+app.post('/api/dogs', async (req, res, next) => {
+    try {
+        const { name, gender, health, adopted, rescue_track } = req.body;
+
+        if (!name || !gender || !health || !adopted) {
+            return res.status(400).json({
+                code: 400,
+                message: '缺少必要参数'
+            });
+        }
+
+        if (!pool) throw new Error('数据库未连接');
+
+        const rescueTrackStr = jsonHelper.stringifyIfObject(rescue_track || []);
+        const created_at = new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+        const [result] = await pool.query(
+            'INSERT INTO dogs (name, gender, health, adopted, rescue_track, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+            [name, gender, health, adopted, rescueTrackStr, created_at]
+        );
+
+        const newDogId = result.insertId;
+
+        // 获取新创建的小狗信息
+        const [rows] = await pool.query('SELECT * FROM dogs WHERE id = ?', [newDogId]);
+
+        if (rows.length === 0) {
+            return res.status(500).json({
+                code: 500,
+                message: '创建小狗信息失败'
+            });
+        }
+
+        const dog = {
+            ...rows[0],
+            rescue_track: jsonHelper.parseJSONField(rows[0].rescue_track)
+        };
+
+        res.json({
+            code: 200,
+            data: dog,
+            message: '小狗创建成功'
+        });
+
+    } catch (error) {
+        next(error);
+    }
+});
 // ===================== 狗狗相关接口 =====================
 
 // 获取所有狗狗
@@ -1508,51 +1605,45 @@ app.use((req, res) => {
 // ===================== 使用统一的错误处理中间件 =====================
 app.use(errorHandler);
 
+// ===================== 启动服务器 =====================
+const PORT = process.env.PORT || 3000;
 
-const handler = serverless(app, {
-    request: (request, event) => {
-        // 阿里云FC的HTTP触发器路径在event.path
-        request.url = event.path || '/';
-        return request;
-    }
-});
-
-// 导出给阿里云函数计算使用
-module.exports.handler = async (event, context) => {
-    console.log('阿里云函数计算环境启动...');
+async function startServer() {
+    console.log('🚀 启动宠物救助平台后端服务器...');
+    console.log('数据库连接配置:');
+    console.log('  - 主机:', process.env.DB_HOST || 'localhost');
+    console.log('  - 端口:', process.env.DB_PORT || 3306);
+    console.log('  - 用户:', process.env.DB_USER || 'pet_user');
+    console.log('  - 数据库:', process.env.DB_NAME || 'pet_backend');
 
     try {
-        // 阿里云FC环境下初始化数据库（仅在冷启动时执行）
-        if (!pool) {
-            console.log('数据库连接池未初始化，正在测试连接...');
-            const dbConnected = await testConnection();
-            console.log(`数据库连接: ${dbConnected ? '✅ 成功' : '❌ 失败'}`);
-            if (dbConnected) await initDatabase();
+        // 测试数据库连接
+        console.log('\n🔍 正在测试数据库连接...');
+        const dbConnected = await testConnection();
+
+        if (dbConnected) {
+            console.log('✅ 数据库连接成功');
+            await initDatabase();
+            console.log('✅ 数据库初始化完成');
+        } else {
+            console.warn('⚠️  数据库连接失败，但服务器将继续启动');
+            console.warn('⚠️  部分数据库相关功能可能无法使用');
         }
+
+        // 启动HTTP服务器
+        app.listen(PORT, '0.0.0.0', () => {
+
+            console.log(`✅ 服务器启动成功!`);
+        });
+
     } catch (error) {
-        console.error('数据库初始化失败:', error);
-        // 继续执行，不要因为数据库问题导致整个函数失败
+        console.error('❌ 启动失败:', error.message);
+        process.exit(1);
     }
-
-    // 兼容阿里云FC的event格式（转换为serverless-http可识别的格式）
-    const fcEvent = {
-        httpMethod: event.httpMethod || 'GET',
-        path: event.path || '/',
-        headers: event.headers || {},
-        body: event.body || '',
-        isBase64Encoded: event.isBase64Encoded || false
-    };
-
-    // 执行serverless-http处理
-    return await handler(fcEvent, context);
-};
-
-module.exports.handler = serverless(app);
-
-// 本地开发时仍可正常启动服务器
-if (process.env.NODE_ENV === 'development') {
-    const PORT = process.env.PORT || 3000;
-    app.listen(PORT, () => {
-        console.log(`本地服务器运行在 http://localhost:${PORT}`);
-    });
 }
+
+// 启动服务器
+startServer();
+
+// 导出app供测试或其他用途
+module.exports = app;
