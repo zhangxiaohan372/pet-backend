@@ -184,7 +184,7 @@ app.post('/api/auth/login', loginValidation, async (req, res, next) => {
         }
 
         const { username, password } = req.body;
-        console.log('\n🔐 === 登录调试开始 ===');
+        console.log('\n === 登录调试开始 ===');
         console.log('输入的用户名:', username);
 
         if (!pool) throw new Error('数据库未连接');
@@ -197,7 +197,7 @@ app.post('/api/auth/login', loginValidation, async (req, res, next) => {
         console.log('查询到的用户数量:', users.length);
 
         if (users.length === 0) {
-            console.log('❌ 用户不存在');
+            console.log('用户不存在');
             return res.status(401).json({
                 code: 401,
                 message: '用户名或密码错误'
@@ -214,7 +214,7 @@ app.post('/api/auth/login', loginValidation, async (req, res, next) => {
         console.log('bcrypt.compare 结果:', validPassword);
 
         if (!validPassword) {
-            console.log('❌ 密码验证失败');
+            console.log('密码验证失败');
             console.log('=== 登录调试结束 ===\n');
             return res.status(401).json({
                 code: 401,
@@ -222,7 +222,7 @@ app.post('/api/auth/login', loginValidation, async (req, res, next) => {
             });
         }
 
-        console.log('✅ 密码验证成功');
+        console.log('密码验证成功');
         console.log('=== 登录调试结束 ===\n');
 
         const token = `mock-token-${Date.now()}`;
@@ -1646,4 +1646,5 @@ async function startServer() {
 startServer();
 
 // 导出app供测试或其他用途
+
 module.exports = app;
